@@ -1,0 +1,15 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  entrypoint-credential-scrub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run credential-scrub regression tests
+        run: bash tests/test-entrypoint-credential-scrub.sh
