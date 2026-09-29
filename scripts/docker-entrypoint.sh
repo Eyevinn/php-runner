@@ -127,8 +127,14 @@ fi
 
 if [[ -n "$OSC_ACCESS_TOKEN" && -n "$CONFIG_SVC" ]]; then
   echo "[CONFIG] Loading environment variables from config service '$CONFIG_SVC'"
-  config_env_output=$(npx -y @osaas/cli@latest web config-to-env ${OSC_ENV:+--env "$OSC_ENV"} "$CONFIG_SVC" 2>&1)
-  config_exit=$?
+  # NOTE: under `set -e`, a plain `x=$(cmd)` assignment propagates a non-zero
+  # command-substitution exit status and terminates the script immediately,
+  # before `config_exit=$?` on the next line ever runs. The `|| config_exit=$?`
+  # form gives the statement an overall success path (set -e only inspects the
+  # exit status of the whole `cmd || fallback` list), so the timeout/error
+  # dispatch below is actually reached instead of being dead code.
+  config_exit=0
+  config_env_output=$(timeout 60s npx -y @osaas/cli@latest web config-to-env ${OSC_ENV:+--env "$OSC_ENV"} "$CONFIG_SVC" 2>&1) || config_exit=$?
   if [ $config_exit -eq 0 ]; then
     valid_exports=$(echo "$config_env_output" | grep "^export [A-Za-z_][A-Za-z0-9_]*=")
     if [ -n "$valid_exports" ]; then
@@ -136,6 +142,8 @@ if [[ -n "$OSC_ACCESS_TOKEN" && -n "$CONFIG_SVC" ]]; then
       var_count=$(echo "$valid_exports" | wc -l | tr -d ' ')
       echo "[CONFIG] Loaded $var_count environment variable(s)"
     fi
+  elif [ $config_exit -eq 124 ]; then
+    echo "[CONFIG] ERROR: Timed out after 60s loading config from '$CONFIG_SVC': $config_env_output" >&2
   else
     echo "[CONFIG] ERROR: Failed to load config (exit $config_exit): $config_env_output" >&2
   fi
