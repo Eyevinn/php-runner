@@ -195,10 +195,27 @@ fi
 # ---- setup.sh escape hatch ----
 # Mirrors python-runner's mechanism: an optional setup.sh at the repo root is
 # executed (as root) after dependency install, before the app starts.
+#
+# Bounded with `timeout` so a hung setup.sh cannot block the build forever
+# (previously: no timeout, no failure handling — a hang meant `buildStatus`
+# stayed `building` indefinitely and `wait-for-app-ready` never got a
+# terminal signal). Both a timeout (exit 124) and any other non-zero exit
+# are treated as terminal build failures, matching the existing
+# docroot-missing and composer-install-failure pattern above.
 if [[ -f "$BUILD_DIR/setup.sh" ]]; then
   echo "[BUILD] Running setup.sh..."
   chmod +x "$BUILD_DIR/setup.sh"
-  (cd "$BUILD_DIR" && ./setup.sh)
+  setup_exit=0
+  (cd "$BUILD_DIR" && timeout 300s ./setup.sh) || setup_exit=$?
+  if [ $setup_exit -eq 124 ]; then
+    echo "setup.sh timed out after 300s" >&2
+    kill $LOADING_PID 2>/dev/null || true
+    exec node /runner/loading-server.js error-page.html failed
+  elif [ $setup_exit -ne 0 ]; then
+    echo "setup.sh failed (exit $setup_exit)" >&2
+    kill $LOADING_PID 2>/dev/null || true
+    exec node /runner/loading-server.js error-page.html failed
+  fi
 fi
 
 # ---- Apache configuration ----
