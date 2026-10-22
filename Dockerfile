@@ -1,12 +1,10 @@
-ARG PHP_IMAGE=php:8.3-apache
-
 FROM node:20-alpine AS loading-stage
 WORKDIR /loading
 COPY scripts/loading-server.js scripts/loading-page.html scripts/error-page.html ./
 
 FROM composer:2 AS composer-stage
 
-FROM ${PHP_IMAGE}
+FROM php:8.3.36-apache
 
 # System packages:
 # - bash, git, curl, jq: entrypoint scripting + commit metadata

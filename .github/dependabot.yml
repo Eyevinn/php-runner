@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Keeps the pinned PHP patch release current. The runner stays on 8.3, so
+  # minor and major bumps are ignored.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: php
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
