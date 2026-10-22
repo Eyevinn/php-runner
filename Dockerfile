@@ -1,4 +1,4 @@
-FROM node:20-alpine AS loading-stage
+FROM node:25-alpine AS loading-stage
 WORKDIR /loading
 COPY scripts/loading-server.js scripts/loading-page.html scripts/error-page.html ./
 
