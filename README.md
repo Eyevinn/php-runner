@@ -105,4 +105,4 @@ The image is built on `php:8.3-apache` (Debian, Apache 2 + mod_php) and includes
 - Composer 2, copied from the official `composer:2` image
 - `mod_rewrite` enabled and `AllowOverride All` for the document root
 
-PHP version is pinned to 8.3 for this runner; there is no multi-version support.
+PHP is pinned to a 8.3 patch release in the `Dockerfile` (currently 8.3.36) and Dependabot bumps the patch version weekly; there is no multi-version support.
