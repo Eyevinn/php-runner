@@ -101,7 +101,7 @@ If both `OSC_ACCESS_TOKEN` and `CONFIG_SVC` are set, the runner loads environmen
 ## Docker Image
 
 The image is built on `php:8.3-apache` (Debian, Apache 2 + mod_php) and includes:
-- `bash`, `git`, `curl`, `jq`, `unzip`, `nodejs`, `npm`
+- `bash`, `git`, `curl`, `jq`, `unzip`, Node.js 24 from NodeSource (npm/npx included)
 - Composer 2, copied from the official `composer:2` image
 - `mod_rewrite` enabled and `AllowOverride All` for the document root
 
