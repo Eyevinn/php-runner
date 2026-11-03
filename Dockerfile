@@ -46,6 +46,9 @@ COPY scripts/docker-entrypoint.sh ./
 RUN chmod +x /runner/docker-entrypoint.sh
 
 VOLUME /usercontent
+# Version of @osaas/cli that docker-entrypoint.sh runs via npx. This is the
+# single place the version is pinned; bump it here.
+ENV OSAAS_CLI_VERSION=4.35.0
 ENV PORT=8080
 EXPOSE 8080
 ENTRYPOINT ["/runner/docker-entrypoint.sh"]
