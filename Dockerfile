@@ -40,6 +40,23 @@ RUN a2enmod rewrite \
   } > /etc/apache2/conf-available/osc-allow-override.conf \
   && a2enconf osc-allow-override
 
+# PHP error handling. The base image activates no php.ini, so PHP's compiled-in
+# defaults apply (display_errors=1, log_errors=0): startup warnings such as an
+# oversized POST body are printed into the response before any app code runs and
+# break the app's own header() calls. A conf.d drop-in sets only the two keys we
+# need; copying php.ini-production would also change variables_order (empties
+# $_ENV), short_open_tag, output_buffering and zend.assertions. log_errors is
+# paired on purpose: with display off, errors would otherwise leave no trace.
+# error_log stays unset so errors go to Apache's ErrorLog (container stderr).
+# The "zz-" prefix keeps this file last, conf.d is parsed alphabetically.
+RUN { \
+    echo 'display_errors = Off'; \
+    echo 'log_errors = On'; \
+  } > "$PHP_INI_DIR/conf.d/zz-osc-errors.ini" \
+  && php --ini | grep -q 'zz-osc-errors.ini' \
+  && php -r 'exit(filter_var(ini_get("display_errors"), FILTER_VALIDATE_BOOLEAN) ? 1 : 0);' \
+  && php -r 'exit(filter_var(ini_get("log_errors"), FILTER_VALIDATE_BOOLEAN) ? 0 : 1);'
+
 COPY scripts/loading-server.js scripts/loading-page.html scripts/error-page.html /runner/
 WORKDIR /runner
 COPY scripts/docker-entrypoint.sh ./
