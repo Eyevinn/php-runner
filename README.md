@@ -49,6 +49,41 @@ If a `setup.sh` script exists at the app root, it is made executable and run (as
 
 Unlike Debian's default `php:8.3-apache` image, this runner explicitly sets `AllowOverride All` for the document root and enables `mod_rewrite` at build time, so `.htaccess`-based routing (used by most PHP frameworks) works out of the box.
 
+## PHP Error Handling and Upload Limits
+
+The image sets two PHP defaults in a `conf.d` drop-in:
+
+- `display_errors = Off`: visitors never see raw PHP warnings or notices in the page.
+- `log_errors = On`: errors are written to the app logs instead, together with Apache's own lines.
+
+A fatal error now answers with HTTP 500 instead of a 200 with a half-rendered page.
+
+To see errors in the browser while debugging, call `ini_set('display_errors', '1')` in your script, or add this line to `.htaccess`:
+
+```
+php_flag display_errors on
+```
+
+`post_max_size` (8M) and `upload_max_filesize` (2M) are unchanged. When a request body is larger than `post_max_size`, PHP discards it and your script still runs, with `$_POST` and `$_FILES` empty. Detect it and show your own message:
+
+```php
+if (empty($_POST) && empty($_FILES)
+    && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+    http_response_code(413);
+    echo 'The file is too large.';
+    exit;
+}
+```
+
+To accept larger uploads, raise both limits in `.htaccess`:
+
+```
+php_value post_max_size 64M
+php_value upload_max_filesize 64M
+```
+
+Known edge: the My App ingress caps request bodies at 64 MB. A larger upload gets the ingress 413 page before PHP runs, so your own message cannot be shown in that range. The visitor still sees no PHP warning.
+
 ## Example Usage
 
 ### Deploy a public PHP app
@@ -104,5 +139,6 @@ The image is built on `php:8.3-apache` (Debian, Apache 2 + mod_php) and includes
 - `bash`, `git`, `curl`, `jq`, `unzip`, Node.js 24 from NodeSource (npm/npx included)
 - Composer 2, copied from the official `composer:2` image
 - `mod_rewrite` enabled and `AllowOverride All` for the document root
+- `display_errors = Off` and `log_errors = On` (see PHP Error Handling and Upload Limits)
 
 PHP is pinned to a 8.3 patch release in the `Dockerfile` (currently 8.3.36) and Dependabot bumps the patch version weekly; there is no multi-version support.
