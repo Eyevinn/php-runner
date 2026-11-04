@@ -45,6 +45,8 @@ composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
 
 If a `setup.sh` script exists at the app root, it is made executable and run (as root) after `composer install` and before Apache starts. Use this for any one-off setup step your app needs (e.g. running database migrations, generating framework caches) that isn't covered by `composer install` alone.
 
+The image already includes these PHP extensions: `gd` (with FreeType and JPEG), `intl`, `zip`, `pdo_pgsql`, `pdo_mysql`, `mysqli`, `bcmath` and `exif`. Do not install them in `setup.sh`. The container filesystem is rebuilt on every restart or redeploy (My Apps have no persistent storage), so an extension installed there is recompiled on every start. Use `setup.sh` for extensions that are not in this list.
+
 ## `.htaccess` / `mod_rewrite`
 
 Unlike Debian's default `php:8.3-apache` image, this runner explicitly sets `AllowOverride All` for the document root and enables `mod_rewrite` at build time, so `.htaccess`-based routing (used by most PHP frameworks) works out of the box.
@@ -139,6 +141,7 @@ The image is built on `php:8.3-apache` (Debian, Apache 2 + mod_php) and includes
 - `bash`, `git`, `curl`, `jq`, `unzip`, Node.js 24 from NodeSource (npm/npx included)
 - Composer 2, copied from the official `composer:2` image
 - `mod_rewrite` enabled and `AllowOverride All` for the document root
+- PHP extensions `gd` (FreeType, JPEG), `intl`, `zip`, `pdo_pgsql`, `pdo_mysql`, `mysqli`, `bcmath` and `exif`
 - `display_errors = Off` and `log_errors = On` (see PHP Error Handling and Upload Limits)
 
 PHP is pinned to a 8.3 patch release in the `Dockerfile` (currently 8.3.36) and Dependabot bumps the patch version weekly; there is no multi-version support.

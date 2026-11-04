@@ -26,6 +26,42 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
 # Composer, copied from the official Composer image (multi-stage, not installed via curl|php).
 COPY --from=composer-stage /usr/bin/composer /usr/bin/composer
 
+# PHP extensions that nearly every app needs, compiled once at build time.
+# A My App pod has no durable storage, so an extension installed from setup.sh
+# is recompiled on every start (about 90 s for gd, intl, zip and pdo_pgsql).
+# Follows the docker-library pattern: install the dev packages, build, mark the
+# runtime libraries the built .so files link against as manually installed
+# (derived with ldd, so Debian package renames such as the t64 transition do not
+# matter), then purge the dev packages. The PHP source tarball and the build
+# toolchain stay in the image because an app's own setup.sh may still call
+# docker-php-ext-install.
+RUN set -eux; \
+  savedAptMark="$(apt-mark showmanual)"; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+    libpng-dev libjpeg-dev libfreetype6-dev libzip-dev libicu-dev libpq-dev; \
+  docker-php-ext-configure gd --with-freetype --with-jpeg; \
+  docker-php-ext-install -j"$(nproc)" gd intl zip pdo_pgsql pdo_mysql mysqli bcmath exif; \
+  apt-mark auto '.*' > /dev/null; \
+  apt-mark manual $savedAptMark > /dev/null; \
+  ldd "$(php -r 'echo ini_get("extension_dir");')"/*.so \
+    | awk '/=>/ { so = $(NF-1); if (index(so, "/usr/local/") == 1) { next }; gsub("^/(usr/)?", "", so); print so }' \
+    | sort -u \
+    | xargs -r dpkg-query --search \
+    | cut -d: -f1 \
+    | sort -u \
+    | xargs -rt apt-mark manual; \
+  apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
+  rm -rf /var/lib/apt/lists/*
+
+# Build-time assertion, run after the purge so a purged runtime library fails
+# the build instead of surfacing as a module that does not load at run time.
+RUN set -eu; \
+  for e in gd intl zip pdo_pgsql pdo_mysql mysqli bcmath exif; do \
+    php -m | grep -qix "$e" || { echo "missing PHP extension $e"; exit 1; }; \
+  done; \
+  php -r 'exit(!empty(gd_info()["FreeType Support"]) && !empty(gd_info()["JPEG Support"]) ? 0 : 1);'
+
 # Enable mod_rewrite and allow .htaccess overrides for the docroot.
 # Debian's php:8.3-apache ships `AllowOverride None` for /var/www/ in
 # apache2.conf, which makes .htaccess/mod_rewrite inert even after
