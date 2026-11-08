@@ -126,6 +126,21 @@ if [[ -n "${OSC_ACCESS_TOKEN:-}" && -n "${CONFIG_SVC:-}" ]]; then
 fi
 
 # BEGIN config-load
+# redact_config_log <text>: mask known credential values and token shapes before
+# text from the config CLI is written to the pod log. Must live inside this block
+# (tests extract the block alone).
+redact_config_log() {
+  local s="$1" v
+  for v in "$OSC_ACCESS_TOKEN" "$CONFIG_API_KEY" "$GIT_TOKEN" "$GITHUB_TOKEN"; do
+    if [ -n "$v" ]; then
+      s="${s//"$v"/[REDACTED]}"
+    fi
+  done
+  printf '%s' "$s" | sed -E \
+    -e 's/gh[pso]_[A-Za-z0-9]{20,}/[REDACTED]/g' \
+    -e 's/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/[REDACTED]/g' \
+    -e 's/Basic [A-Za-z0-9+\/=]{8,}/Basic [REDACTED]/g'
+}
 if [[ -n "$OSC_ACCESS_TOKEN" && -n "$CONFIG_SVC" ]]; then
   echo "[CONFIG] Loading environment variables from config service '$CONFIG_SVC'"
   # NOTE: this script runs under `set -e`. A plain `x=$(cmd)` assignment
@@ -171,7 +186,7 @@ if [[ -n "$OSC_ACCESS_TOKEN" && -n "$CONFIG_SVC" ]]; then
       break
     fi
     # Auth and not-found failures are permanent: do not retry
-    if echo "$config_env_output $config_err_output" | grep -qi "expired\|unauthorized\|401\|not found\|404"; then
+    if echo "$config_err_output" | grep -qi "expired\|unauthorized\|401\|not found\|404"; then
       break
     fi
     if [ $config_attempt -ge $config_max_attempts ]; then
@@ -184,8 +199,14 @@ if [[ -n "$OSC_ACCESS_TOKEN" && -n "$CONFIG_SVC" ]]; then
   rm -f "$config_out_file" "$config_err_file"
 
   if [ $config_failed -eq 1 ]; then
-    echo "[CONFIG] ERROR: Failed to load config from '$CONFIG_SVC' ($config_fail_reason, exit code $config_exit): $config_env_output $config_err_output" >&2
-    if echo "$config_env_output $config_err_output" | grep -qi "expired\|unauthorized\|401"; then
+    # Never print $config_env_output: it holds decrypted `export NAME=value` lines.
+    echo "[CONFIG] ERROR: Failed to load config from '$CONFIG_SVC' ($config_fail_reason, exit code $config_exit): $(redact_config_log "$config_err_output")" >&2
+    if [ $config_exit -eq 0 ]; then
+      config_export_count=$(echo "$config_env_output" | grep -c "^export ") || config_export_count=0
+      config_export_names=$(echo "$config_env_output" | sed -n 's/^export \([^= ]*\)=.*/\1/p' | head -n 10 | cut -c1-64 | tr '\n' ' ') || config_export_names=""
+      echo "[CONFIG] ERROR: $config_export_count export line(s) returned, names: ${config_export_names:-none} (values not logged)" >&2
+    fi
+    if echo "$config_err_output" | grep -qi "expired\|unauthorized\|401"; then
       echo "[CONFIG] Action required: Your OSC_ACCESS_TOKEN may have expired." >&2
       echo "[CONFIG] Use the 'refresh-app-config' MCP tool to issue a fresh token." >&2
     fi

@@ -181,6 +181,56 @@ else
   fail "no OSC_ACCESS_TOKEN (code=$CODE calls=$CALLS)"; echo "$OUT"
 fi
 
+# 11. secrets from stdout never reach the log (fake canary values only)
+reset; echo "export DB_PASS='S3CR3T-canary'" > "$SB/call1.out"; echo 2 > "$SB/call1.exit"; echo boom > "$SB/call1.err"
+for i in 2 3; do cp "$SB/call1.out" "$SB/call$i.out"; cp "$SB/call1.exit" "$SB/call$i.exit"; cp "$SB/call1.err" "$SB/call$i.err"; done
+run
+expect_failed_state "stdout leak, non-zero exit"
+echo "$OUT" | grep -q 'exit code 2' && pass "non-zero exit: exit code printed" || fail "non-zero exit: exit code missing"
+echo "$OUT" | grep -q 'S3CR3T-canary' && fail "non-zero exit: canary leaked" || pass "non-zero exit: canary absent from log"
+
+reset; for i in 1 2 3; do echo "export MY-KEY='S3CR3T-canary'" > "$SB/call$i.out"; done
+run
+expect_failed_state "no valid export line"
+echo "$OUT" | grep -q 'MY-KEY' && echo "$OUT" | grep -q 'values not logged' && pass "no valid export: key name and 'values not logged' shown" || fail "no valid export: diagnostic missing"
+echo "$OUT" | grep -q 'S3CR3T-canary' && fail "no valid export: canary leaked" || pass "no valid export: canary absent from log"
+
+reset; for i in 1 2 3; do echo 124 > "$SB/call$i.exit"; echo "export T_X='S3CR3T-canary'" > "$SB/call$i.out"; done
+run
+expect_failed_state "timeout with partial stdout"
+echo "$OUT" | grep -q 'S3CR3T-canary' && fail "timeout: canary leaked" || pass "timeout: canary absent from log"
+
+# 12. stderr is redacted: literal token, ghp_ token and JWT
+JWT="eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.sig_abc-123"
+GHP="ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+reset; echo 1 > "$SB/call1.exit"; echo "fail OSCTOKENLITERAL9 $GHP $JWT ECONNRESET" > "$SB/call1.err"
+for i in 2 3; do cp "$SB/call1.exit" "$SB/call$i.exit"; cp "$SB/call1.err" "$SB/call$i.err"; done
+OSC_ACCESS_TOKEN="OSCTOKENLITERAL9" run
+expect_failed_state "stderr redaction"
+if echo "$OUT" | grep -q '\[REDACTED\]' && ! echo "$OUT" | grep -q 'OSCTOKENLITERAL9' \
+   && ! echo "$OUT" | grep -q "$GHP" && ! echo "$OUT" | grep -q "$JWT"; then
+  pass "stderr: token, ghp_ and JWT redacted"
+else
+  fail "stderr redaction"; echo "$OUT"
+fi
+
+# 13. secret containing 'expired 401' on stdout does not change retry or hint
+reset; for i in 1 2 3; do echo 1 > "$SB/call$i.exit"; echo "export X='expired 401'" > "$SB/call$i.out"; echo ECONNRESET > "$SB/call$i.err"; done
+run
+expect_failed_state "secret-dependent classifier"
+[ "$CALLS" -eq 3 ] && pass "stdout content does not stop retries" || fail "classifier attempts=$CALLS"
+echo "$OUT" | grep -q "refresh-app-config" && fail "stdout content triggered token hint" || pass "stdout content does not trigger token hint"
+
+# 14. passing path: secret export still loaded, never logged
+reset; printf "export FOO=bar\nexport SECRET_X='canary-ok'\n" > "$SB/call1.out"
+run
+if [ "$CODE" -eq 0 ] && echo "$OUT" | grep -q 'FOO=bar' && echo "$OUT" | grep -q 'Loaded 2 environment variable(s)' \
+   && ! echo "$OUT" | grep -q 'canary-ok'; then
+  pass "success: exports loaded, secret value not logged"
+else
+  fail "success with secret (code=$CODE)"; echo "$OUT"
+fi
+
 # 10. entrypoint documents the set -e / command substitution trap
 if grep -q 'set -e' "$ENTRYPOINT" && echo "$block" | grep -q 'x=\$(cmd)'; then
   pass "block documents the set -e / x=\$(cmd) pitfall"
